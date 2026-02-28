@@ -9,6 +9,9 @@ public class GridManager : MonoBehaviour
     public int height = 6;
     public float tileSize = 1f;
     public float refillSpawnOffset = 2f; // how high above the grid new tiles spawn when refilling
+    public float fallDuration = 0.30f;
+    public float refillDuration = 0.35f;
+    private bool isAnimating = false;
 
     public GameObject tilePrefab;
 
@@ -121,47 +124,73 @@ public class GridManager : MonoBehaviour
         }
     }
 
-    // collapse the grid by moving tiles down into empty spaces
-    private void CollapseColumns()
+    // process the move by clearing the group, collapsing columns and refilling the grid. using a coroutine allows us to wait for animations to finish before proceeding to the next step.
+    private System.Collections.IEnumerator ProcessMove(List<Tile> group)
     {
-        // for each column, track the next avaiable lowest slot and compact non null tiles down into it
+        isAnimating = true; // locks input until the move is fully processed
+
+        GameManager.Instance.UseMove();
+        GameManager.Instance.AddScore(group.Count * 10);
+
+        ClearGroup(group); // clear tiles instantly - can add later animation here 
+
+        // animate the collapse of columns - find all tiles that need to fall down and their target positions, then animate them together (yield return -> wait until animation is done)
+        yield return StartCoroutine(CollapseColumnsAnimated(fallDuration));
+
+        // refill the grid with new tiles and animate them falling in
+        yield return StartCoroutine(RefillGridAnimated(refillDuration));
+
+        ResetAllScales();
+        isAnimating = false;
+    }
+
+    // instead of collapsing one tile at a time, collect all the tiles that need to move and their start/end positions then animate them together for a smoother effect.
+    private System.Collections.IEnumerator CollapseColumnsAnimated(float duration)
+    {
+        // collect moves (tile -> target position)
+        var moves = new List<(Tile tile, Vector3 start, Vector3 end)>();
+
         for (int x = 0; x < width; x++)
         {
-            int writeY = 0; // next empty spot from bottom
+            int writeY = 0;
 
             for (int y = 0; y < height; y++)
             {
                 var tile = grid[x, y];
-                // if there's no tile, just skip it and keep looking for the next one to pull down
                 if (tile == null) continue;
 
                 if (y != writeY)
                 {
-                    // move tile down in array
                     grid[x, writeY] = tile;
                     grid[x, y] = null;
 
-                    // update tile coords
                     tile.y = writeY;
 
-                    // move tile transform (instant)
-                    tile.transform.position = new Vector3(x * tileSize, writeY * tileSize, 0);
+                    Vector3 start = tile.transform.position;
+                    Vector3 end = new Vector3(x * tileSize, writeY * tileSize, 0);
+                    // collect moves to animate together later
+                    moves.Add((tile, start, end));
                 }
                 writeY++;
             }
         }
+
+        // animate all moves together
+        if (moves.Count > 0)
+            yield return StartCoroutine(AnimateMoves(moves, duration));
     }
 
-    // refill the grid with new tiles at the top
-    private void RefillGrid()
+    // when refilling, spawn new tiles above the grid and animate them falling into place. collect all new tiles and their target positions to animate together for a smoother effect.
+    private System.Collections.IEnumerator RefillGridAnimated(float duration)
     {
+        var moves = new List<(Tile tile, Vector3 start, Vector3 end)>();
+
         for (int x = 0; x < width; x++)
         {
             for (int y = 0; y < height; y++)
             {
                 if (grid[x, y] != null) continue;
 
-                // spawn above and place into the hole (instant placement for now)
                 var spawnPos = new Vector3(x * tileSize, (y + refillSpawnOffset) * tileSize, 0);
                 GameObject obj = Instantiate(tilePrefab, spawnPos, Quaternion.identity);
                 obj.transform.SetParent(transform);
@@ -176,10 +205,46 @@ public class GridManager : MonoBehaviour
 
                 grid[x, y] = tile;
 
-                // snap into place (instant)
-                tile.transform.position = new Vector3(x * tileSize, y * tileSize, 0);
+                Vector3 endPos = new Vector3(x * tileSize, y * tileSize, 0);
+                // same logic - collect all moves to animate together later
+                moves.Add((tile, spawnPos, endPos));
             }
         }
+
+        if (moves.Count > 0)
+            yield return StartCoroutine(AnimateMoves(moves, duration));
+    }
+
+    // shared animation engine for moving tiles from start to end positions over a duration with easing. by using a single coroutine to animate all tile movements together, we get smoother animations and can easily wait for all animations to finish before proceeding to the next step in the move processing.
+    private System.Collections.IEnumerator AnimateMoves(List<(Tile tile, Vector3 start, Vector3 end)> moves, float duration)
+    {
+        float t = 0f;
+
+        // ensure all start positions are applied
+        foreach (var m in moves)
+            if (m.tile != null)
+                m.tile.transform.position = m.start;
+
+        while (t < duration)
+        {
+            float a = t / duration;
+            // smoothstep for nicer easing - easing function
+            a = a * a * (3f - 2f * a);
+
+            foreach (var m in moves)
+            {
+                if (m.tile == null) continue;
+                m.tile.transform.position = Vector3.Lerp(m.start, m.end, a);
+            }
+
+            t += Time.deltaTime;
+            yield return null; // wait for next frame
+        }
+
+        // snap to exact end
+        foreach (var m in moves)
+            if (m.tile != null)
+                m.tile.transform.position = m.end;
     }
 
 
@@ -188,31 +253,19 @@ public class GridManager : MonoBehaviour
     {
         if (tile == null) return;
 
-        ResetAllScales();
+        // to ensure one move completes before another one starts
+        if (isAnimating) return;
 
+        ResetAllScales();
         var group = GetConnectedGroup(tile);
+
         foreach (var t in group)
             t.transform.localScale = Vector3.one * 1.15f;
 
-        // valid move rule - will update later
-        if (group.Count < 2)
-        {
-            Debug.Log("Not enough tiles to clear (need at least 2).");
-            return;
-        }
+        if (group.Count < 2) return;
 
-        // for now just use a move and score a bit to test:
-        GameManager.Instance.UseMove();
-        GameManager.Instance.AddScore(group.Count * 10);
-
-        // first clear the group
-        ClearGroup(group);
-
-        // then collapse the grid down and to the left
-        CollapseColumns();
-
-        // finally refill the grid with new tiles
-        RefillGrid();
+        // coroutine lets us pause logic across multiple frames to allow animations to play out while keeping the main thread responsive. we can yield until animations are done before proceeding to the next step of collapsing and refilling the grid.
+        StartCoroutine(ProcessMove(group));
     }
 
     private void ResetAllScales()
