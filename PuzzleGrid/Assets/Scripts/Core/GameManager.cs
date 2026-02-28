@@ -30,6 +30,7 @@ public class GameManager : MonoBehaviour
         if (moves <= 0)
         {
             Debug.Log("Game Over");
+            Destroy(gameObject);
         }
     }
 }
