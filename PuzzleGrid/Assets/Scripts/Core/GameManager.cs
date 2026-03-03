@@ -6,6 +6,7 @@ public class GameManager : MonoBehaviour
 
     public int score = 0;
     public int moves = 20;
+    public bool IsGameOver => moves <= 0;
 
     // ensure only one instance of GameManager exists
     private void Awake()
@@ -19,18 +20,16 @@ public class GameManager : MonoBehaviour
     public void AddScore(int amount)
     {
         score += amount;
-        Debug.Log("Score: " + score);
+        UIManager.Instance?.RefreshHUD();
     }
 
     public void UseMove()
     {
         moves--;
-        Debug.Log("Moves left: " + moves);
-
+        UIManager.Instance?.RefreshHUD();
         if (moves <= 0)
         {
-            Debug.Log("Game Over");
-            Destroy(gameObject);
+            UIManager.Instance?.ShowGameOver(true);
         }
     }
 }

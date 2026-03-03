@@ -51,7 +51,7 @@ public class GridManager : MonoBehaviour
 
     void SpawnTile(int x, int y)
     {
-        GameObject obj = Instantiate(tilePrefab, new Vector3(x * tileSize, y * tileSize, 0), Quaternion.identity);
+        GameObject obj = Instantiate(tilePrefab, GetWorldPosition(x, y), Quaternion.identity);
         obj.transform.SetParent(transform);
 
         // OnMouseDown requires a physics collider on the clicked object.
@@ -205,7 +205,7 @@ public class GridManager : MonoBehaviour
                     tile.y = writeY;
 
                     Vector3 start = tile.transform.position;
-                    Vector3 end = new Vector3(x * tileSize, writeY * tileSize, 0);
+                    Vector3 end = GetWorldPosition(x, writeY);
                     // collect moves to animate together later
                     moves.Add((tile, start, end));
                 }
@@ -229,7 +229,7 @@ public class GridManager : MonoBehaviour
             {
                 if (grid[x, y] != null) continue;
 
-                var spawnPos = new Vector3(x * tileSize, (y + refillSpawnOffset) * tileSize, 0);
+                var spawnPos = GetWorldPosition(x, y + refillSpawnOffset);
                 GameObject obj = Instantiate(tilePrefab, spawnPos, Quaternion.identity);
                 obj.transform.SetParent(transform);
 
@@ -243,7 +243,7 @@ public class GridManager : MonoBehaviour
 
                 grid[x, y] = tile;
 
-                Vector3 endPos = new Vector3(x * tileSize, y * tileSize, 0);
+                Vector3 endPos = GetWorldPosition(x, y);
                 // same logic - collect all moves to animate together later
                 moves.Add((tile, spawnPos, endPos));
             }
@@ -291,6 +291,8 @@ public class GridManager : MonoBehaviour
     {
         if (tile == null) return;
 
+        if (GameManager.Instance != null && GameManager.Instance.IsGameOver) return;
+
         // to ensure one move completes before another one starts
         if (isAnimating) return;
 
@@ -318,5 +320,18 @@ public class GridManager : MonoBehaviour
                     grid[x, y].transform.localScale = Vector3.one;
             }
         }
+    }
+    Vector3 GetWorldPosition(int x, int y)
+    {
+        return GetWorldPosition(x, (float)y);
+    }
+
+    Vector3 GetWorldPosition(int x, float y)
+    {
+        return new Vector3(
+            x * tileSize - (width * tileSize) / 2f + tileSize / 2f,
+            y * tileSize - (height * tileSize) / 2f + tileSize / 2f,
+            0
+        );
     }
 }
