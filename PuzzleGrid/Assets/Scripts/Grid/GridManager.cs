@@ -114,13 +114,51 @@ public class GridManager : MonoBehaviour
 
     }
 
-    // clear the group of tiles by destroying their game objects and setting their grid positions to null
-    private void ClearGroup(List<Tile> group)
+    // clear the group of tiles by destroying their game objects and setting their grid positions to null. animate the clearing by scaling down and fading out the tiles over a short duration before destroying them, to give visual feedback to the player.
+    private System.Collections.IEnumerator ClearGroupAnimated(List<Tile> group, float duration)
     {
-        foreach (var t in group)
+        float t = 0f;
+
+        var sprites = new List<SpriteRenderer>();
+
+        foreach (var tile in group)
         {
-            grid[t.x, t.y] = null;
-            Destroy(t.gameObject);
+            // remove each tile from the grid immediately so they won't interfere with collapse/refill logic, but keep their game objects around for animation until the end of the duration.
+            grid[tile.x, tile.y] = null;
+            sprites.Add(tile.GetComponent<SpriteRenderer>());
+        }
+
+        while (t < duration)
+        {
+            float a = t / duration;
+
+            foreach (var tile in group)
+            {
+                if (tile == null) continue;
+
+                // scale down - tiles shrink down smoothly
+                tile.transform.localScale = Vector3.Lerp(Vector3.one, Vector3.zero, a);
+
+                // fade out
+                var sr = tile.GetComponent<SpriteRenderer>();
+                if (sr != null)
+                {
+                    // only fade transparancy, keep color hue intact - fade out smoothly
+                    Color c = sr.color;
+                    c.a = Mathf.Lerp(1f, 0f, a);
+                    sr.color = c;
+                }
+            }
+
+            t += Time.deltaTime;
+            yield return null;
+        }
+
+        // Final cleanup
+        foreach (var tile in group)
+        {
+            if (tile != null)
+                Destroy(tile.gameObject);
         }
     }
 
@@ -132,7 +170,7 @@ public class GridManager : MonoBehaviour
         GameManager.Instance.UseMove();
         GameManager.Instance.AddScore(group.Count * 10);
 
-        ClearGroup(group); // clear tiles instantly - can add later animation here 
+        yield return StartCoroutine(ClearGroupAnimated(group, 0.15f)); // clear tiles with animation
 
         // animate the collapse of columns - find all tiles that need to fall down and their target positions, then animate them together (yield return -> wait until animation is done)
         yield return StartCoroutine(CollapseColumnsAnimated(fallDuration));
