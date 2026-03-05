@@ -12,6 +12,9 @@ public class GridManager : MonoBehaviour
     public float fallDuration = 0.30f;
     public float refillDuration = 0.35f;
     private bool isAnimating = false;
+    public Transform uiAnchorTopLeft;
+    public Transform uiAnchorTopRight;
+    public float uiAnchorPadding = 0.4f; // world units above the grid
 
     public GameObject tilePrefab;
 
@@ -36,6 +39,14 @@ public class GridManager : MonoBehaviour
         GenerateGrid();
     }
 
+    public void RecreateGrid()
+    {
+        StopAllCoroutines();
+        isAnimating = false;
+        ClearExistingTiles();
+        GenerateGrid();
+    }
+
     void GenerateGrid()
     {
         grid = new Tile[width, height];
@@ -47,6 +58,19 @@ public class GridManager : MonoBehaviour
                 SpawnTile(x, y);
             }
         }
+        UpdateUIAnchors();
+    }
+
+    private void ClearExistingTiles()
+    {
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            var child = transform.GetChild(i);
+            if (child != null)
+                Destroy(child.gameObject);
+        }
+
+        grid = null;
     }
 
     void SpawnTile(int x, int y)
@@ -180,6 +204,13 @@ public class GridManager : MonoBehaviour
 
         ResetAllScales();
         isAnimating = false;
+
+        // defer Game Over UI until animations are finished
+        if (GameManager.Instance != null && GameManager.Instance.IsGameOver)
+        {
+            UIManager.Instance?.ShowHUD(false);
+            UIManager.Instance?.ShowGameOver(true);
+        }
     }
 
     // instead of collapsing one tile at a time, collect all the tiles that need to move and their start/end positions then animate them together for a smoother effect.
@@ -290,6 +321,9 @@ public class GridManager : MonoBehaviour
     public void HandleTileClick(Tile tile)
     {
         if (tile == null) return;
+        if (GameManager.Instance == null) return;
+        if (GameManager.Instance.IsGameOver) return;
+        if (UIManager.Instance != null && UIManager.Instance.IsInMenu) return;
 
         if (GameManager.Instance != null && GameManager.Instance.IsGameOver) return;
 
@@ -333,5 +367,27 @@ public class GridManager : MonoBehaviour
             y * tileSize - (height * tileSize) / 2f + tileSize / 2f,
             0
         );
+    }
+
+    public void UpdateUIAnchors()
+    {
+        float gridWidth = width * tileSize;
+        float gridHeight = height * tileSize;
+
+        // local positions relative to GridRoot (0,0) center
+        Vector3 localTopLeft = new Vector3(
+            -gridWidth / 2f + tileSize / 2f,
+            gridHeight / 2f + uiAnchorPadding,
+            0f
+        );
+
+        Vector3 localTopRight = new Vector3(
+            gridWidth / 2f - tileSize / 2f,
+            gridHeight / 2f + uiAnchorPadding,
+            0f
+        );
+
+        if (uiAnchorTopLeft != null) uiAnchorTopLeft.position = transform.TransformPoint(localTopLeft);
+        if (uiAnchorTopRight != null) uiAnchorTopRight.position = transform.TransformPoint(localTopRight);
     }
 }
